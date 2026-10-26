@@ -1,0 +1,54 @@
+# Ví dụ Kubernetes Indexed Job cho Kubeflow: NUM_PODS pod, mỗi pod GPUS_PER_POD x A100.
+# Mỗi pod nhận một phần danh sách job qua JOB_COMPLETION_INDEX (sweep.py đọc biến này).
+# Cần một PVC ReadWriteMany chứa mã nguồn + dữ liệu, dùng chung cache/kết quả giữa các pod.
+#
+# Thay: <IMAGE>, <PVC_NAME>, <NAMESPACE>, số pod/GPU, và giới hạn tài nguyên theo quota của bạn.
+# Nếu chỉ dùng một pod nhiều GPU (Kubeflow Notebook), không cần file này:
+#   python sweep.py --preset paper ablation --data /mnt/data/NF-ToN-IoT-v2.csv --jobs-per-gpu 3
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fecograph-sweep
+  namespace: <NAMESPACE>
+spec:
+  completionMode: Indexed
+  completions: 2          # NUM_PODS
+  parallelism: 2
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: sweep
+          image: <IMAGE>    # image có sẵn PyTorch + CUDA, vd. pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+          workingDir: /mnt/work/fecograph
+          command: ["bash", "-lc"]
+          args:
+            - |
+              pip install -q pandas scikit-learn matplotlib xgboost
+              python sweep.py \
+                --preset paper ablation label kshot sensitivity \
+                --data /mnt/work/data/NF-ToN-IoT-v2.csv \
+                --seeds 0 1 2 \
+                --num-shards 2 \
+                --jobs-per-gpu 3 --cpus-per-gpu 11 \
+                --extra "--cache-dir /mnt/work/cache" \
+                --state-dir /mnt/work/sweep_state --log-dir /mnt/work/logs
+          resources:
+            limits:
+              nvidia.com/gpu: 4        # GPUS_PER_POD
+              cpu: "44"                # 11 core / GPU
+              memory: 512Gi            # 128 GiB / GPU
+          volumeMounts:
+            - name: work
+              mountPath: /mnt/work
+            - name: shm                # tránh lỗi bộ nhớ chia sẻ khi nhiều tiến trình
+              mountPath: /dev/shm
+      volumes:
+        - name: work
+          persistentVolumeClaim:
+            claimName: <PVC_NAME>
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi

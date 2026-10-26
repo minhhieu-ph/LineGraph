@@ -1,0 +1,8 @@
+# Cài torch theo đúng phiên bản CUDA của máy: https://pytorch.org/get-started/locally/
+torch>=1.13
+numpy
+pandas>=1.5
+scikit-learn>=1.1
+matplotlib
+xgboost        # tuỳ chọn, cho baselines_ml.py
+pytest         # tuỳ chọn, cho tests/
